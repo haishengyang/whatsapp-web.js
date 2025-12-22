@@ -145,7 +145,15 @@ class RemoteAuth extends BaseAuthStrategy {
         const archive = archiver('zip');
         const stream = fs.createWriteStream(`${this.sessionName}.zip`);
 
-        await fs.copy(this.userDataDir, this.tempDir).catch(() => {});
+        await fs.copy(this.userDataDir, this.tempDir, {
+            dereference: true,
+            filter: (src) => {
+                // 跳过可能被锁定的文件                                                                                                                                                                                                   
+                return !src.includes('LOCK') && !src.includes('lock');
+            }
+        }).catch((err) => {
+            console.error('Copy session error:', err.message);
+        });       
         await this.deleteMetadata();
         return new Promise((resolve, reject) => {
             archive
