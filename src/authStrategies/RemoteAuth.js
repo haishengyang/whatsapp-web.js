@@ -148,12 +148,26 @@ class RemoteAuth extends BaseAuthStrategy {
         await fs.copy(this.userDataDir, this.tempDir, {
             dereference: true,
             filter: (src) => {
-                // 跳过被锁定的Sessions文件
-                return !src.includes('Sessions')
+                // 白名单模式：只复制 WhatsApp 登录必需的目录
+                // 必需：Default/IndexedDB 和 Default/Local Storage
+                const relativePath = path.relative(this.userDataDir, src);
+
+                // 允许根目录和 Default 目录本身
+                if (relativePath === '' || relativePath === 'Default') return true;
+
+                // 只允许 IndexedDB 和 Local Storage 目录及其子内容
+                if (relativePath.startsWith('Default\\IndexedDB') ||
+                    relativePath.startsWith('Default/IndexedDB') ||
+                    relativePath.startsWith('Default\\Local Storage') ||
+                    relativePath.startsWith('Default/Local Storage')) {
+                    return true;
+                }
+
+                return false;
             }
         }).catch((err) => {
             console.error('Copy session error:', err.message);
-        });       
+        });
         await this.deleteMetadata();
         return new Promise((resolve, reject) => {
             archive
