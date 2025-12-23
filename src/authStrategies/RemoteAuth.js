@@ -148,8 +148,8 @@ class RemoteAuth extends BaseAuthStrategy {
         await fs.copy(this.userDataDir, this.tempDir, {
             dereference: true,
             filter: (src) => {
-                // 跳过可能被锁定的文件                                                                                                                                                                                                   
-                return !src.includes('LOCK') && !src.includes('lock');
+                // 跳过被锁定的Sessions文件
+                return !src.includes('Sessions')
             }
         }).catch((err) => {
             console.error('Copy session error:', err.message);
