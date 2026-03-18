@@ -14,6 +14,7 @@ try {
 const path = require('path');
 const { Events } = require('./../util/Constants');
 const BaseAuthStrategy = require('./BaseAuthStrategy');
+const EMPTY_SESSION_ZIP_BYTES = 114;
 
 /**
  * Remote-based authentication
@@ -62,6 +63,8 @@ class RemoteAuth extends BaseAuthStrategy {
             'Local Storage',
         ]; /* => Required Files & Dirs in WWebJS to restore session */
         this.rmMaxRetries = rmMaxRetries ?? 4;
+        this.backupSync = null;
+        this.terminated = false;
     }
 
     async beforeBrowserInitialized() {
@@ -96,10 +99,15 @@ class RemoteAuth extends BaseAuthStrategy {
     }
 
     async destroy() {
-        clearInterval(this.backupSync);
+        this.terminated = true;
+        if (this.backupSync) {
+            clearInterval(this.backupSync);
+            this.backupSync = null;
+        }
     }
 
     async disconnect() {
+        this.terminated = true;
         await this.deleteRemoteSession();
 
         let pathExists = await this.isValidPath(this.userDataDir);
@@ -112,10 +120,17 @@ class RemoteAuth extends BaseAuthStrategy {
                 })
                 .catch(() => {});
         }
-        clearInterval(this.backupSync);
+        if (this.backupSync) {
+            clearInterval(this.backupSync);
+            this.backupSync = null;
+        }
     }
 
     async afterAuthReady() {
+        if (this.terminated || this.backupSync) {
+            return;
+        }
+
         const sessionExists = await this.store.sessionExists({
             session: this.sessionName,
         });
@@ -123,9 +138,15 @@ class RemoteAuth extends BaseAuthStrategy {
             await this.delay(
                 60000,
             ); /* Initial delay sync required for session to be stable enough to recover */
+            if (this.terminated) {
+                return;
+            }
             await this.storeRemoteSession({ emit: true });
         }
         var self = this;
+        if (this.terminated) {
+            return;
+        }
         this.backupSync = setInterval(async function () {
             await self.storeRemoteSession();
         }, this.backupSyncIntervalMs);
@@ -183,6 +204,22 @@ class RemoteAuth extends BaseAuthStrategy {
                 session: this.sessionName,
                 path: compressedSessionPath,
             });
+            const compressedSessionStat = await fs.promises
+                .stat(compressedSessionPath)
+                .catch(() => null);
+            if (
+                !compressedSessionStat ||
+                compressedSessionStat.size <= EMPTY_SESSION_ZIP_BYTES
+            ) {
+                await fs.promises
+                    .rm(compressedSessionPath, {
+                        force: true,
+                    })
+                    .catch(() => {});
+                await this.deleteRemoteSession().catch(() => {});
+                fs.mkdirSync(this.userDataDir, { recursive: true });
+                return;
+            }
             await this.unCompressSession(compressedSessionPath);
         } else {
             fs.mkdirSync(this.userDataDir, { recursive: true });
